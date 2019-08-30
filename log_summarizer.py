@@ -30,9 +30,12 @@ def parse_log(log_dir, start_date, end_date, target_cols,
 
     Returns:
          result of statistic 
-         ``{<target-column1>:{<tag1>:<frequency>, <tag2>:<frequency>, ... }, <target-column2>:{...}, ...}``
+         ``{<target-column1>:{<tag1>:<frequency>, <tag2>:<frequency>, ... }, 
+            <target-column2>:{...}, 
+            ...}``
     """
     def path_generator(date, log_dir, debug=False):
+        """ yield the path of subclass """
         rc = sbp.check_output('hadoop dfs -ls' + ' ' +
                               log_dir + date, shell=True).decode('utf-8')
         if debug:
@@ -44,11 +47,14 @@ def parse_log(log_dir, start_date, end_date, target_cols,
             yield t[i]
 
     def agg_log_funs(target_cols, num_col=None, sep=','):
+        """ aggregate functions for statistic"""
         def seqOp(semi_r, row):
             for t_col in target_cols:
                 tags = str(row[t_col]).strip().split(sep)
+                # return the number of num_col if num_col exists and exists in row, else let the number equals 1
                 num = row[num_col] if num_col and row[num_col] else 1
                 for t in tags:
+                    # add the number to the dictionary if there exists or add a new (k,v) pair
                     semi_r[t_col][t] = num + (semi_r[t_col].get(t) or 0)
             return semi_r
 
@@ -62,6 +68,7 @@ def parse_log(log_dir, start_date, end_date, target_cols,
 
     target_dates = [""]
 
+    # gather all target, which is part of the path
     # while len(target_dates) != 0 and not all([d.endswith('gz') for d in target_dates]):
     while len(target_dates) != 0 and not all([len(d) == 13 for d in target_dates]):
         # print(target_dates)
@@ -86,6 +93,7 @@ def parse_log(log_dir, start_date, end_date, target_cols,
     comb_fun = agg_log_funs(target_cols, num_col)[1]
     for path in target_dates:
         try:
+            # read the file
             df_p = spark.sparkContext.textFile(log_dir + path)
             df = spark.read.json(df_p)
         except:
@@ -97,8 +105,10 @@ def parse_log(log_dir, start_date, end_date, target_cols,
                 assert set(df.columns) >= {num_col}
 
             print("File '%s' added" % path)
+            # get summarize or the file 
             r = df.rdd.aggregate({t_col: {} for t_col in target_cols},
                                  *agg_log_funs(target_cols, num_col))
+            # sum up with the from previous
             sum_dict = comb_fun(sum_dict, r)
     return sum_dict
 
